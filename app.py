@@ -1,4 +1,4 @@
-import datetime
+ import datetime
 import sqlite3
 import urllib.parse
 import pandas as pd
@@ -13,7 +13,7 @@ st.set_page_config(
 
 st.title("🛒 Control de Créditos y Cartera - Tienda Residencial")
 st.markdown(
-    "Panel de administración general, ventas mixtas, control de cartera e histórico por inmueble."
+    "Panel de administración, ventas mixtas, control de cartera y cobros masivos por WhatsApp."
 )
 
 # ---------------------------------------------------------
@@ -25,7 +25,6 @@ DB_NAME = "tienda.db"
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    # Tabla de inmuebles / clientes
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS clientes (
             id_inmueble TEXT PRIMARY KEY,
@@ -35,7 +34,6 @@ def init_db():
             telefono TEXT
         )
     """)
-    # Tabla de transacciones con soporte para montos de contado y crédito
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS transacciones (
             id_transaccion INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,7 +69,7 @@ def cargar_transacciones():
     return df
 
 
-# Menú lateral para navegar actualizado con el Dashboard de Cartera
+# Menú lateral para navegar
 menu = st.sidebar.selectbox(
     "Menú de Administración",
     [
@@ -97,17 +95,11 @@ if menu == "📊 Dashboard y Cartera General":
     if len(df_trans) == 0 or len(df_clientes) == 0:
         st.info("Aún no hay suficientes datos registrados para mostrar el dashboard.")
     else:
-        # Calcular Cartera General (Suma de montos de crédito pendientes)
         df_pendientes = df_trans[df_trans["estado"] == "Pendiente"]
         cartera_total = df_pendientes["monto_credito"].sum()
-
-        # Calcular Ventas Totales Registradas
         ventas_totales = df_trans["monto_total"].sum()
-
-        # Total Inmuebles Registrados
         total_inmuebles = len(df_clientes)
 
-        # Mostrar métricas principales en columnas
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric(
@@ -163,63 +155,57 @@ elif menu == "📝 Registrar Venta (Contado / Crédito / Mixta)":
             "Primero debes registrar al menos un inmueble en 'Registro y Edición de Inmuebles'."
         )
     else:
-        with st.form("form_venta_mixta"):
-            inmuebles_dict = {
-                f"{row['torre']} - {row['apartamento']} (Contacto: {row['responsable']})": row[
-                    "id_inmueble"
-                ]
-                for _, row in df_clientes.iterrows()
-            }
-            inmueble_seleccionado = st.selectbox(
-                "Seleccione el Apartamento / Casa",
-                options=list(inmuebles_dict.keys()),
-            )
+        inmuebles_dict = {
+            f"{row['torre']} - {row['apartamento']} (Contacto: {row['responsable']})": row[
+                "id_inmueble"
+            ]
+            for _, row in df_clientes.iterrows()
+        }
+        inmueble_seleccionado = st.selectbox(
+            "Seleccione el Apartamento / Casa",
+            options=list(inmuebles_dict.keys()),
+        )
 
-            comprador = st.text_input(
-                "¿Quién realizó la compra?",
-                placeholder="Ej: El esposo, la esposa, el hijo, etc.",
-            )
-            descripcion = st.text_input(
-                "Descripción de los productos",
-                placeholder="Ej: 1 Arroz, 1 Aceite, Gaseosa",
-            )
-            monto_total = st.number_input(
-                "Valor Total de la Venta ($)",
+        comprador = st.text_input(
+            "¿Quién realizó la compra?",
+            placeholder="Ej: El esposo, la esposa, el hijo, etc.",
+        )
+        descripcion = st.text_input(
+            "Descripción de los productos",
+            placeholder="Ej: 1 Arroz, 1 Aceite, Gaseosa",
+        )
+        monto_total = st.number_input(
+            "Valor Total de la Venta ($)", min_value=0, step=1000, value=50000
+        )
+
+        tipo_venta = st.radio(
+            "Forma de Pago de esta Venta",
+            [
+                "Crédito 100% (Todo al fío)",
+                "Contado 100% (Pagado de inmediato)",
+                "Venta Mixta (Parte contado y parte a crédito)",
+            ],
+        )
+
+        monto_contado_ingresado = 0
+        if tipo_venta == "Venta Mixta (Parte contado y parte a crédito)":
+            monto_contado_ingresado = st.number_input(
+                "¿Cuánto pagó de contado en efectivo/transferencia?",
                 min_value=0,
                 step=1000,
-                value=50000,
+                value=20000,
             )
 
-            tipo_venta = st.radio(
-                "Forma de Pago de esta Venta",
-                [
-                    "Crédito 100% (Todo al fío)",
-                    "Contado 100% (Pagado de inmediato)",
-                    "Venta Mixta (Parte contado y parte a crédito)",
-                ],
-            )
+        fecha = st.date_input("Fecha de la venta", value=datetime.date.today())
 
-            monto_contado_ingresado = 0
-            if tipo_venta == "Contado 100% (Pagado de inmediato)":
-                monto_contado_ingresado = -1  # Indicador para tomar el total
-            elif tipo_venta == "Venta Mixta (Parte contado y parte a crédito)":
-                monto_contado_ingresado = st.number_input(
-                    "¿Cuánto pagó de contado en efectivo/transferencia?",
-                    min_value=0,
-                    step=1000,
-                    value=30000,
-                )
-
-            fecha = st.date_input(
-                "Fecha de la venta", value=datetime.date.today()
-            )
-
-            submitted = st.form_submit_button("Registrar Venta")
-
-            if submitted and comprador and monto_total > 0:
+        if st.button("Registrar Venta"):
+            if not comprador:
+                st.error("Por favor indica quién realizó la compra.")
+            elif monto_total <= 0:
+                st.error("El valor total de la venta debe ser mayor a cero.")
+            else:
                 id_inm = inmuebles_dict[inmueble_seleccionado]
 
-                # Lógica financiera para determinar contado y crédito
                 if tipo_venta == "Crédito 100% (Todo al fío)":
                     m_contado = 0
                     m_credito = monto_total
@@ -227,26 +213,26 @@ elif menu == "📝 Registrar Venta (Contado / Crédito / Mixta)":
                 elif tipo_venta == "Contado 100% (Pagado de inmediato)":
                     m_contado = monto_total
                     m_credito = 0
-                    estado = (
-                        "Pagado"  # Si es de contado, se registra como pagado
-                    )
+                    estado = "Pagado"
                 else:  # Venta Mixta
                     if monto_contado_ingresado >= monto_total:
                         st.error(
-                            "El monto de contado no puede ser mayor o igual al total si elegiste venta mixta."
+                            "El monto de contado no puede ser mayor o igual al valor total de la venta."
                         )
                         m_contado = 0
                         m_credito = 0
-                        estado = "Pendiente"
+                        estado = None
+                    elif monto_contado_ingresado < 0:
+                        st.error("El abono de contado no puede ser negativo.")
+                        m_contado = 0
+                        m_credito = 0
+                        estado = None
                     else:
                         m_contado = monto_contado_ingresado
                         m_credito = monto_total - monto_contado_ingresado
                         estado = "Pendiente"
 
-                if (
-                    tipo_venta != "Venta Mixta..."
-                    and (m_contado + m_credito > 0)
-                ):
+                if estado is not None:
                     conn = sqlite3.connect(DB_NAME)
                     cursor = conn.cursor()
                     cursor.execute(
@@ -268,12 +254,8 @@ elif menu == "📝 Registrar Venta (Contado / Crédito / Mixta)":
                     conn.commit()
                     conn.close()
                     st.success(
-                        f"¡Venta registrada con éxito! Total: ${monto_total:,.0f} | Pagado contado: ${m_contado:,.0f} | A crédito: ${m_credito:,.0f}"
+                        f"¡Venta registrada con éxito! Total: ${monto_total:,.0f} | Contado: ${m_contado:,.0f} | A crédito: ${m_credito:,.0f}"
                     )
-            elif submitted:
-                st.error(
-                    "Por favor completa el nombre del comprador y un monto válido."
-                )
 
 # ---------------------------------------------------------
 # 2. REGISTRAR ABONO O PAGO TOTAL
@@ -401,10 +383,8 @@ elif menu == "📈 Histórico Mensual y por Inmueble":
     if len(df_trans) == 0:
         st.info("No hay transacciones registradas para mostrar histórico.")
     else:
-        # Extraer mes y año de la fecha (formato YYYY-MM)
         df_trans["mes"] = df_trans["fecha"].astype(str).str.slice(0, 7)
 
-        # Filtros en pantalla
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             meses_disponibles = sorted(df_trans["mes"].unique(), reverse=True)
@@ -419,7 +399,6 @@ elif menu == "📈 Histórico Mensual y por Inmueble":
                 "Filtrar por Inmueble", options=opciones_inm
             )
 
-        # Aplicar filtros
         df_filtrado = df_trans[df_trans["mes"] == mes_seleccionado]
         if inm_seleccionado != "Todos los Inmuebles":
             df_filtrado = df_filtrado[
@@ -551,10 +530,13 @@ elif menu == "🏢 Registro y Edición de Inmuebles":
     st.dataframe(cargar_clientes(), use_container_width=True)
 
 # ---------------------------------------------------------
-# 5. CORTE QUINCENAL Y COBRO POR WHATSAPP
+# 5. CORTE QUINCENAL Y COBROS WHATSAPP (CON ENVÍO MASIVO)
 # ---------------------------------------------------------
 elif menu == "💰 Corte Quincenal y Cobros WhatsApp":
-    st.header("💰 Liquidación Quincenal Consolidada")
+    st.header("💰 Liquidación Quincenal y Panel de Cobros por WhatsApp")
+    st.markdown(
+        "Envía los extractos individuales o utiliza el **Panel de Envío Masivo** para notificar a todos los deudores en la víspera de la quincena."
+    )
 
     df_trans = cargar_transacciones()
     df_clientes = cargar_clientes()
@@ -582,7 +564,16 @@ elif menu == "💰 Corte Quincenal y Cobros WhatsApp":
             resumen_deudas = resumen_deudas[resumen_deudas["monto_credito"] > 0]
 
             if len(resumen_deudas) > 0:
-                st.subheader("Cuentas Pendientes por Apartamento")
+                # ---------------------------------------------------------
+                # BANNER DE ENVÍO MASIVO PARA EL DÍA ANTES DE LA QUINCENA
+                # ---------------------------------------------------------
+                st.info(
+                    "🚀 **Panel de Envío Masivo Quincenal:** Puedes hacer clic en los botones verdes de abajo de manera consecutiva para abrir rápidamente los chats de WhatsApp de cada apartamento con su saldo listo."
+                )
+
+                st.subheader(
+                    f"📋 Listado de Cobros Pendientes ({len(resumen_deudas)} Inmuebles en total)"
+                )
 
                 for _, row in resumen_deudas.iterrows():
                     with st.expander(
@@ -630,7 +621,7 @@ elif menu == "💰 Corte Quincenal y Cobros WhatsApp":
                         )
 
                         st.markdown(
-                            f'<a href="{whatsapp_link}" target="_blank"><button style="background-color:#25D366; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">💬 Enviar Extracto de {row['id_inmueble']} por WhatsApp</button></a>',
+                            f'<a href="{whatsapp_link}" target="_blank"><button style="background-color:#25D366; color:white; padding:12px 24px; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:15px;">💬 Enviar Liquidación de {row['id_inmueble']} por WhatsApp</button></a>',
                             unsafe_allow_html=True,
                         )
             else:
