@@ -206,56 +206,57 @@ elif menu == "📝 Registrar Venta (Contado / Crédito / Mixta)":
             else:
                 id_inm = inmuebles_dict[inmueble_seleccionado]
 
+                # Asignación segura de valores financieros
                 if tipo_venta == "Crédito 100% (Todo al fío)":
-                    m_contado = 0
-                    m_credito = monto_total
+                    m_contado = 0.0
+                    m_credito = float(monto_total)
                     estado = "Pendiente"
                 elif tipo_venta == "Contado 100% (Pagado de inmediato)":
-                    m_contado = monto_total
-                    m_credito = 0
+                    m_contado = float(monto_total)
+                    m_credito = 0.0
                     estado = "Pagado"
                 else:  # Venta Mixta
                     if monto_contado_ingresado >= monto_total:
                         st.error(
                             "El monto de contado no puede ser mayor o igual al valor total de la venta."
                         )
-                        m_contado = 0
-                        m_credito = 0
                         estado = None
                     elif monto_contado_ingresado < 0:
                         st.error("El abono de contado no puede ser negativo.")
-                        m_contado = 0
-                        m_credito = 0
                         estado = None
                     else:
-                        m_contado = monto_contado_ingresado
-                        m_credito = monto_total - monto_contado_ingresado
+                        m_contado = float(monto_contado_ingresado)
+                        m_credito = float(monto_total - monto_contado_ingresado)
                         estado = "Pendiente"
 
-                if estado is not None:
-                    conn = sqlite3.connect(DB_NAME)
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        """
-                        INSERT INTO transacciones (id_inmueble, fecha, comprador, descripcion, monto_total, monto_contado, monto_credito, estado)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                        (
-                            id_inm,
-                            str(fecha),
-                            comprador,
-                            descripcion,
-                            monto_total,
-                            m_contado,
-                            m_credito,
-                            estado,
-                        ),
-                    )
-                    conn.commit()
-                    conn.close()
-                    st.success(
-                        f"¡Venta registrada con éxito! Total: ${monto_total:,.0f} | Contado: ${m_contado:,.0f} | A crédito: ${m_credito:,.0f}"
-                    )
+                # Ejecución segura de la inserción en la base de datos
+                if "estado" in locals() and estado is not None:
+                    try:
+                        conn = sqlite3.connect(DB_NAME)
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            """
+                            INSERT INTO transacciones (id_inmueble, fecha, comprador, descripcion, monto_total, monto_contado, monto_credito, estado)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                            (
+                                id_inm,
+                                str(fecha),
+                                comprador,
+                                descripcion,
+                                float(monto_total),
+                                m_contado,
+                                m_credito,
+                                estado,
+                            ),
+                        )
+                        conn.commit()
+                        conn.close()
+                        st.success(
+                            f"¡Venta registrada con éxito! Total: ${monto_total:,.0f} | Contado: ${m_contado:,.0f} | A crédito: ${m_credito:,.0f}"
+                        )
+                    except Exception as e:
+                        st.error(f"Error al guardar en la base de datos: {e}")
 
 # ---------------------------------------------------------
 # 2. REGISTRAR ABONO O PAGO TOTAL
@@ -355,9 +356,9 @@ elif menu == "💵 Registrar Abono o Pago Total":
                                         str(datetime.date.today()),
                                         "ABONO / PAGO",
                                         "Abono parcial a la deuda",
-                                        monto_abono,
-                                        monto_abono,
-                                        -monto_abono,
+                                        float(monto_abono),
+                                        float(monto_abono),
+                                        float(-monto_abono),
                                         "Pendiente",
                                     ),
                                 )
@@ -564,11 +565,8 @@ elif menu == "💰 Corte Quincenal y Cobros WhatsApp":
             resumen_deudas = resumen_deudas[resumen_deudas["monto_credito"] > 0]
 
             if len(resumen_deudas) > 0:
-                # ---------------------------------------------------------
-                # BANNER DE ENVÍO MASIVO PARA EL DÍA ANTES DE LA QUINCENA
-                # ---------------------------------------------------------
                 st.info(
-                    "🚀 **Panel de Envío Masivo Quincenal:** Puedes hacer clic en los botones verdes de abajo de manera consecutiva para abrir rápidamente los chats de WhatsApp de cada apartamento con su saldo listo."
+                    "🚀 **Panel de Envío Masivo Quincenal:** Haz clic en los botones verdes de abajo de manera consecutiva para abrir rápidamente los chats de WhatsApp de cada apartamento con su saldo listo."
                 )
 
                 st.subheader(
