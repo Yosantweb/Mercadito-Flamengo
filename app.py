@@ -17,7 +17,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# CONFIGURACIÓN DE LA BASE DE DATOS SQLITE (PERSISTENCIA)
+# CONFIGURACIÓN DE LA BASE DE DATOS SQLITE (CON AUTO-MIGRACIÓN)
 # ---------------------------------------------------------
 DB_NAME = "tienda.db"
 
@@ -25,6 +25,8 @@ DB_NAME = "tienda.db"
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+
+    # Tabla de inmuebles
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS clientes (
             id_inmueble TEXT PRIMARY KEY,
@@ -34,6 +36,8 @@ def init_db():
             telefono TEXT
         )
     """)
+
+    # Tabla de transacciones con la estructura completa
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS transacciones (
             id_transaccion INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,6 +52,24 @@ def init_db():
             FOREIGN KEY (id_inmueble) REFERENCES clientes (id_inmueble)
         )
     """)
+
+    # SEGURIDAD EXTRA: Si la tabla ya existía de versiones anteriores sin las columnas nuevas, las agregamos automáticamente
+    cursor.execute("PRAGMA table_info(transacciones)")
+    columnas_existentes = [col[1] for col in cursor.fetchall()]
+
+    if "monto_total" not in columnas_existentes:
+        cursor.execute(
+            "ALTER TABLE transacciones ADD COLUMN monto_total REAL DEFAULT 0"
+        )
+    if "monto_contado" not in columnas_existentes:
+        cursor.execute(
+            "ALTER TABLE transacciones ADD COLUMN monto_contado REAL DEFAULT 0"
+        )
+    if "monto_credito" not in columnas_existentes:
+        cursor.execute(
+            "ALTER TABLE transacciones ADD COLUMN monto_credito REAL DEFAULT 0"
+        )
+
     conn.commit()
     conn.close()
 
@@ -206,7 +228,6 @@ elif menu == "📝 Registrar Venta (Contado / Crédito / Mixta)":
             else:
                 id_inm = inmuebles_dict[inmueble_seleccionado]
 
-                # Asignación segura de valores financieros
                 if tipo_venta == "Crédito 100% (Todo al fío)":
                     m_contado = 0.0
                     m_credito = float(monto_total)
@@ -229,7 +250,6 @@ elif menu == "📝 Registrar Venta (Contado / Crédito / Mixta)":
                         m_credito = float(monto_total - monto_contado_ingresado)
                         estado = "Pendiente"
 
-                # Ejecución segura de la inserción en la base de datos
                 if "estado" in locals() and estado is not None:
                     try:
                         conn = sqlite3.connect(DB_NAME)
