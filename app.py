@@ -5,20 +5,22 @@ import streamlit as st
 
 # Configuración inicial de la página
 st.set_page_config(
-    page_title="Control de Créditos - Unidad Residencial",
-    page_icon="🏢",
+    page_title="Control de Créditos - Tienda Residencial",
+    page_icon="🛒",
     layout="wide",
 )
 
-st.title("🥤 Control de Créditos - Healthy Express")
-st.markdown("Gestión de fiados por Torre, Apartamento y Cobros por WhatsApp.")
+st.title("🛒 Control de Créditos y Tienda - Gestión por Inmueble")
+st.markdown(
+    "Lleva el registro de fiados por cliente y liquida cuentas por Torre y Apartamento."
+)
 
 # Inicializar bases de datos en sesión
 if "clientes" not in st.session_state:
     st.session_state.clientes = pd.DataFrame(
         columns=[
             "id_cliente",
-            "nombre",
+            "nombre_cliente",
             "torre",
             "apartamento",
             "telefono",
@@ -49,8 +51,8 @@ if "transacciones" not in st.session_state:
         1,
         1,
         str(datetime.date.today()),
-        "Smoothie Red Energy 500ml",
-        12000,
+        "Leche, Pan y Huevos",
+        15000,
         "Pendiente",
     ]
 
@@ -58,8 +60,8 @@ if "transacciones" not in st.session_state:
 menu = st.sidebar.selectbox(
     "Menú de Navegación",
     [
-        "Registrar Venta / Crédito",
-        "Clientes (Torre / Apto)",
+        "Registrar Venta / Crédito (Fío)",
+        "Registro de Clientes",
         "Corte Quincenal y Cobros WhatsApp",
     ],
 )
@@ -67,39 +69,42 @@ menu = st.sidebar.selectbox(
 # ---------------------------------------------------------
 # 1. REGISTRAR VENTA / CRÉDITO
 # ---------------------------------------------------------
-if menu == "Registrar Venta / Crédito":
-    st.header("📝 Registrar Nuevo Consumo (Fío)")
+if menu == "Registrar Venta / Crédito (Fío)":
+    st.header("📝 Registrar Nuevo Fío en la Tienda")
 
     if len(st.session_state.clientes) == 0:
         st.warning(
-            "Primero debes registrar al menos un cliente en la sección 'Clientes'."
+            "Primero debes registrar al menos un cliente en la sección 'Registro de Clientes'."
         )
     else:
         with st.form("form_venta"):
-            # Mostrar cliente con su torre y apartamento para identificarlo fácil
+            # Mostrar claramente la Torre, el Apartamento y el nombre de quien compra
             clientes_dict = {
-                f"{row['torre']} - {row['apartamento']} ({row['nombre']})": row[
+                f"{row['torre']} - {row['apartamento']} | Cliente: {row['nombre_cliente']}": row[
                     "id_cliente"
                 ]
                 for _, row in st.session_state.clientes.iterrows()
             }
             cliente_seleccionado = st.selectbox(
-                "Seleccione la Torre y Apartamento (Cliente)",
+                "Seleccione el Inmueble y Cliente que fía",
                 options=list(clientes_dict.keys()),
             )
 
             descripcion = st.text_input(
-                "Descripción del producto",
-                placeholder="Ej: Smoothie Tropical Green + Chía",
+                "Productos llevados",
+                placeholder="Ej: 1 Arroz, 1 Aceite, Gaseosa",
             )
             monto = st.number_input(
-                "Monto ($)", min_value=0, step=1000, value=10000
+                "Valor total del fío ($)",
+                min_value=0,
+                step=1000,
+                value=12000,
             )
             fecha = st.date_input(
                 "Fecha de la venta", value=datetime.date.today()
             )
 
-            submitted = st.form_submit_button("Guardar Crédito")
+            submitted = st.form_submit_button("Guardar Fío")
 
             if submitted:
                 id_cli = clientes_dict[cliente_seleccionado]
@@ -116,47 +121,53 @@ if menu == "Registrar Venta / Crédito":
                     len(st.session_state.transacciones)
                 ] = nueva_fila
                 st.success(
-                    f"¡Crédito registrado con éxito para {cliente_seleccionado}!"
+                    f"¡Fío registrado correctamente para {cliente_seleccionado}!"
                 )
 
 # ---------------------------------------------------------
-# 2. GESTIÓN DE CLIENTES
+# 2. REGISTRO DE CLIENTES
 # ---------------------------------------------------------
-elif menu == "Clientes (Torre / Apto)":
-    st.header("🏢 Gestión de Residentes por Torre y Apartamento")
+elif menu == "Registro de Clientes":
+    st.header("👥 Gestión de Clientes y Residentes")
+    st.markdown(
+        "Aquí puedes registrar los datos de cada persona, indicando su torre y apartamento correspondiente."
+    )
 
     with st.form("form_cliente"):
-        nombre = st.text_input(
-            "Nombre del residente principal o responsable"
+        nombre_cliente = st.text_input("Nombre completo de la persona")
+        torre = st.text_input("Torre / Bloque (Ej: Torre 1, Manzana A)")
+        apartamento = st.text_input(
+            "Apartamento / Casa (Ej: Apto 201, Casa 15)"
         )
-        torre = st.text_input("Torre o Bloque (Ej: Torre 1, Manzana B)")
-        apartamento = st.text_input("Apartamento o Casa (Ej: Apto 302, Casa 12)")
         telefono = st.text_input(
             "Número de WhatsApp (con código de país, ej: 57300...)"
         )
-        guardar_cli = st.form_submit_button("Agregar Residente")
+        guardar_cli = st.form_submit_button("Guardar Cliente")
 
-        if guardar_cli and nombre and torre and apartamento and telefono:
+        if guardar_cli and nombre_cliente and torre and apartamento and telefono:
             nuevo_id = len(st.session_state.clientes) + 1
             st.session_state.clientes.loc[len(st.session_state.clientes)] = [
                 nuevo_id,
-                nombre,
+                nombre_cliente,
                 torre,
                 apartamento,
                 telefono,
             ]
             st.success(
-                f"Residente de {torre} - {apartamento} agregado correctamente."
+                f"Cliente {nombre_cliente} ({torre} - {apartamento}) registrado con éxito."
             )
 
-    st.subheader("Lista de Residentes Registrados")
+    st.subheader("Base de Datos de Clientes Registrados")
     st.dataframe(st.session_state.clientes, use_container_width=True)
 
 # ---------------------------------------------------------
 # 3. CORTE QUINCENAL Y COBRO POR WHATSAPP
 # ---------------------------------------------------------
 elif menu == "Corte Quincenal y Cobros WhatsApp":
-    st.header("💰 Resumen de Saldos por Apartamento (Corte Quincenal)")
+    st.header("💰 Liquidación y Corte por Inmueble (Torre y Apartamento)")
+    st.markdown(
+        "El sistema agrupa automáticamente todas las compras de un mismo apartamento, sin importar quién haya ido a la tienda."
+    )
 
     if len(st.session_state.transacciones) == 0:
         st.info("No hay transacciones registradas.")
@@ -168,43 +179,52 @@ elif menu == "Corte Quincenal y Cobros WhatsApp":
 
         if len(df_t) > 0:
             df_merged = df_t.merge(df_c, on="id_cliente")
-            # Agrupar por Torre y Apartamento
-            resumen_deudas = (
-                df_merged.groupby(
-                    ["id_cliente", "torre", "apartamento", "nombre", "telefono"]
-                )["monto"]
+
+            # Agrupamos estrictamente por Torre y Apartamento para sumar la deuda total del hogar
+            resumen_inmueble = (
+                df_merged.groupby(["torre", "apartamento", "telefono"])[
+                    "monto"
+                ]
                 .sum()
                 .reset_index()
             )
 
-            st.subheader(
-                "Saldos Pendientes Organizados por Inmueble (Torre / Apto)"
-            )
+            st.subheader("Cuentas Pendientes por Apartamento")
 
-            for _, row in resumen_deudas.iterrows():
+            for _, row in resumen_inmueble.iterrows():
+                # Buscamos los nombres de los clientes asociados a este apartamento para tener referencia
+                clientes_apto = df_merged[
+                    (df_merged["torre"] == row["torre"])
+                    & (df_merged["apartamento"] == row["apartamento"])
+                ]["nombre_cliente"].unique()
+                nombres_str = ", ".join(clientes_apto)
+
                 with st.expander(
-                    f"🏠 {row['torre']} - {row['apartamento']} | Responsable: {row['nombre']} — Total a Pagar: ${row['monto']:,.0f}"
+                    f"🏠 {row['torre']} - {row['apartamento']} | Residentes: {nombres_str} — Total Deuda: ${row['monto']:,.0f}"
                 ):
-                    # Mostrar detalle de lo que debe ese apartamento
-                    compras_cliente = df_merged[
-                        df_merged["id_cliente"] == row["id_cliente"]
+                    # Mostrar detalle de todas las compras hechas por cualquier integrante del apartamento
+                    compras_inmueble = df_merged[
+                        (df_merged["torre"] == row["torre"])
+                        & (df_merged["apartamento"] == row["apartamento"])
                     ]
                     st.table(
-                        compras_cliente[["fecha", "descripcion", "monto"]]
+                        compras_inmueble[
+                            ["fecha", "nombre_cliente", "descripcion", "monto"]
+                        ]
                     )
 
-                    # Botón para generar mensaje directo de WhatsApp enfocado en el inmueble
-                    mensaje = f"Hola {row['nombre']}, te escribo de Healthy Express. Te compartimos el resumen de cobro quincenal de su consumo en el {row['torre']} - {row['apartamento']}, con un saldo pendiente total de ${row['monto']:,.0f}. Puedes realizar el pago por Nequi o Efectivo. ¡Muchas gracias!"
+                    # Botón para generar mensaje de WhatsApp dirigido al contacto del apartamento
+                    mensaje = f"Hola, le escribimos de la tienda. Le compartimos el resumen de cobro quincenal de los consumos realizados por los residentes del {row['torre']} - {row['apartamento']}, con un saldo pendiente total de ${row['monto']:,.0f}. Puede realizar el pago por Nequi o Efectivo. ¡Muchas gracias!"
                     mensaje_encoded = urllib.parse.quote(mensaje)
                     whatsapp_link = (
                         f"https://wa.me/{row['telefono']}?text={mensaje_encoded}"
                     )
 
                     st.markdown(
-                        f'<a href="{whatsapp_link}" target="_blank"><button style="background-color:#25D366; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">💬 Enviar Cobro por WhatsApp ({row['torre']} {row['apartamento']})</button></a>',
+                        f'<a href="{whatsapp_link}" target="_blank"><button style="background-color:#25D366; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">💬 Enviar Liquidación por WhatsApp ({row['torre']} {row['apartamento']})</button></a>',
                         unsafe_allow_html=True,
                     )
         else:
             st.success(
-                "¡Excelente! No hay saldos pendientes en este momento. Todos los créditos están al día."
+                "¡Excelente! No hay saldos pendientes en este momento. Todas las cuentas están al día."
             )
