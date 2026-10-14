@@ -26,13 +26,12 @@ if "clientes" not in st.session_state:
             "telefono",
         ]
     )
-    # Inmueble de prueba
     st.session_state.clientes.loc[0] = [
         "Torre 1 - Apto 302",
         "Torre 1",
         "Apto 302",
         "Juan Pérez",
-        "573001234567",
+        "3001234567",
     ]
 
 if "transacciones" not in st.session_state:
@@ -47,7 +46,6 @@ if "transacciones" not in st.session_state:
             "estado",
         ]
     )
-    # Transacción de prueba
     st.session_state.transacciones.loc[0] = [
         1,
         "Torre 1 - Apto 302",
@@ -58,7 +56,7 @@ if "transacciones" not in st.session_state:
         "Pendiente",
     ]
 
-# Menú lateral para navegar actualizado con la opción de Pagos/Abonos
+# Menú lateral para navegar
 menu = st.sidebar.selectbox(
     "Menú de Navegación",
     [
@@ -138,22 +136,16 @@ if menu == "Registrar Venta / Crédito (Fío)":
 # ---------------------------------------------------------
 elif menu == "Registrar Abono o Pago Total":
     st.header("💵 Registrar Abono o Pago de Deuda")
-    st.markdown(
-        "Aquí puedes reportar los pagos parciales (abonos) o la cancelación total de la cuenta de un apartamento."
-    )
 
     if len(st.session_state.clientes) == 0:
         st.warning("No hay inmuebles registrados.")
     else:
-        # Filtrar transacciones pendientes
         df_t_pend = st.session_state.transacciones[
             st.session_state.transacciones["estado"] == "Pendiente"
         ]
 
         if len(df_t_pend) == 0:
-            st.success(
-                "¡Excelente! No hay deudas pendientes en este momento para abonar."
-            )
+            st.success("¡Excelente! No hay deudas pendientes para abonar.")
         else:
             inmuebles_dict = {
                 f"{row['torre']} - {row['apartamento']} (Contacto: {row['responsable']})": row[
@@ -167,7 +159,6 @@ elif menu == "Registrar Abono o Pago Total":
             )
             id_inm_sel = inmuebles_dict[inmueble_seleccionado]
 
-            # Calcular la deuda actual de este inmueble
             deudas_inmueble = df_t_pend[
                 df_t_pend["id_inmueble"] == id_inm_sel
             ]
@@ -178,7 +169,7 @@ elif menu == "Registrar Abono o Pago Total":
                     f"🏠 **{inmueble_seleccionado}** tiene una deuda pendiente total de: **${total_deuda:,.0f}**"
                 )
 
-                with st.expander("Ver detalle de las compras pendientes de este apartamento"):
+                with st.expander("Ver detalle de compras pendientes"):
                     st.table(
                         deudas_inmueble[
                             ["fecha", "comprador", "descripcion", "monto"]
@@ -190,21 +181,15 @@ elif menu == "Registrar Abono o Pago Total":
                         "Tipo de Transacción",
                         ["Pago Total (Cancelar toda la deuda)", "Abono Parcial"],
                     )
-
                     monto_abono = st.number_input(
-                        "Valor del Abono ($) [Solo aplica si es Abono Parcial]",
-                        min_value=0,
-                        step=1000,
-                        value=0,
+                        "Valor del Abono ($)", min_value=0, step=1000, value=0
                     )
-
                     ejecutar_pago = st.form_submit_button(
                         "Registrar Transacción de Pago"
                     )
 
                     if ejecutar_pago:
                         if tipo_pago == "Pago Total (Cancelar toda la deuda)":
-                            # Marcar todas las transacciones pendientes de este inmueble como 'Pagado'
                             st.session_state.transacciones.loc[
                                 (
                                     st.session_state.transacciones["id_inmueble"]
@@ -216,40 +201,30 @@ elif menu == "Registrar Abono o Pago Total":
                                 ),
                                 "estado",
                             ] = "Pagado"
-                            st.success(
-                                f"¡Deuda cancelada en su totalidad! El apartamento {inmueble_seleccionado} ha quedado al día."
-                            )
+                            st.success("¡Deuda cancelada en su totalidad!")
                             st.rerun()
-
-                        else:  # Abono Parcial
-                            if (
-                                monto_abono <= 0
-                            ):
-                                st.error("Por favor ingresa un valor válido para el abono.")
+                        else:
+                            if monto_abono <= 0:
+                                st.error("Ingresa un valor válido para el abono.")
                             elif monto_abono > total_deuda:
                                 st.error(
-                                    "El valor del abono no puede ser mayor a la deuda total actual."
+                                    "El abono no puede ser mayor a la deuda total."
                                 )
                             else:
-                                # Lógica para aplicar el abono: restamos de la deuda o registramos un ajuste
-                                # Para simplificar y mantener limpio el historial, modificamos la primera transacción pendiente o creamos una nota de abono.
-                                # Una forma muy limpia en contabilidad de tienda es descontar al registro más antiguo o insertar una transacción negativa de abono.
                                 nuevo_id = len(st.session_state.transacciones) + 1
                                 fila_abono = {
                                     "id_transaccion": nuevo_id,
                                     "id_inmueble": id_inm_sel,
                                     "fecha": str(datetime.date.today()),
                                     "comprador": "ABONO / PAGO",
-                                    "descripcion": f"Abono parcial a la deuda",
-                                    "monto": -monto_abono,  # Monto negativo para restar al saldo total
+                                    "descripcion": "Abono parcial a la deuda",
+                                    "monto": -monto_abono,
                                     "estado": "Pendiente",
                                 }
                                 st.session_state.transacciones.loc[
                                     len(st.session_state.transacciones)
                                 ] = fila_abono
-                                st.success(
-                                    f"¡Abono de ${monto_abono:,.0f} registrado con éxito para {inmueble_seleccionado}! Nuevo saldo actualizado."
-                                )
+                                st.success("¡Abono registrado con éxito!")
                                 st.rerun()
             else:
                 st.success("Este apartamento no tiene saldos pendientes.")
@@ -268,11 +243,9 @@ elif menu == "Registro y Edición de Inmuebles":
             apartamento = st.text_input(
                 "Apartamento / Casa (Ej: Apto 201, Casa 15)"
             )
-            responsable = st.text_input(
-                "Nombre del residente principal / contacto fijo"
-            )
+            responsable = st.text_input("Nombre del residente principal")
             telefono = st.text_input(
-                "Número de WhatsApp del contacto (Ej: 57300...)"
+                "Número de WhatsApp (Ej: 3226834617 o 3001234567)"
             )
             guardar_inm = st.form_submit_button("Registrar Inmueble")
 
@@ -302,9 +275,6 @@ elif menu == "Registro y Edición de Inmuebles":
 
     with tab2:
         if len(st.session_state.clientes) > 0:
-            st.markdown(
-                "Selecciona un inmueble para actualizar su responsable o número de WhatsApp sin perder su historial de saldos."
-            )
             with st.form("form_editar_inmueble"):
                 lista_inm = st.session_state.clientes["id_inmueble"].tolist()
                 inmueble_a_editar = st.selectbox(
@@ -337,7 +307,7 @@ elif menu == "Registro y Edición de Inmuebles":
                         f"¡Datos del inmueble {inmueble_a_editar} actualizados con éxito!"
                     )
         else:
-            st.info("No hay inmuebles registrados para editar.")
+            st.info("No hay inmuebles registrados.")
 
     st.subheader("Base de Datos de Inmuebles Activos")
     st.dataframe(st.session_state.clientes, use_container_width=True)
@@ -346,17 +316,11 @@ elif menu == "Registro y Edición de Inmuebles":
 # 4. CORTE QUINCENAL Y COBRO POR WHATSAPP
 # ---------------------------------------------------------
 elif menu == "Corte Quincenal y Cobros WhatsApp":
-    st.header(
-        "💰 Liquidación Quincenal Consolidada por Torre y Apartamento"
-    )
-    st.markdown(
-        "Aquí se consolida la deuda neta del hogar (incluyendo abonos y compras recientes)."
-    )
+    st.header("💰 Liquidación Quincenal Consolidada")
 
     if len(st.session_state.transacciones) == 0:
         st.info("No hay transacciones pendientes.")
     else:
-        # Solo tomamos las transacciones con estado 'Pendiente'
         df_t = st.session_state.transacciones[
             st.session_state.transacciones["estado"] == "Pendiente"
         ].copy()
@@ -377,36 +341,39 @@ elif menu == "Corte Quincenal y Cobros WhatsApp":
                 .reset_index()
             )
 
-            # Filtramos por si acaso hay algún inmueble con deuda total en 0 o menor
             resumen_deudas = resumen_deudas[resumen_deudas["monto"] > 0]
 
             if len(resumen_deudas) > 0:
                 st.subheader("Cuentas Pendientes por Apartamento")
 
-                for _, row in resumen_deudas.iterrows():
-                    with st.expander(
-                        f"🏠 {row['id_inmueble']} | Contacto: {row['responsable']} — Deuda Total Neta: ${row['monto']:,.0f}"
-                    ):
-                        compras_apartamento = df_merged[
-                            df_merged["id_inmueble"] == row["id_inmueble"]
+            for _, row in resumen_deudas.iterrows():
+                with st.expander(
+                    f"🏠 {row['id_inmueble']} | Contacto: {row['responsable']} — Deuda Total: ${row['monto']:,.0f}"
+                ):
+                    compras_apartamento = df_merged[
+                        df_merged["id_inmueble"] == row["id_inmueble"]
+                    ]
+                    st.table(
+                        compras_apartamento[
+                            ["fecha", "comprador", "descripcion", "monto"]
                         ]
-                        st.table(
-                            compras_apartamento[
-                                ["fecha", "comprador", "descripcion", "monto"]
-                            ]
-                        )
+                    )
 
-                        mensaje = f"Hola {row['responsable']}, le escribimos de la tienda. Le compartimos el estado de cuenta quincenal con el saldo pendiente actual de su apartamento {row['id_inmueble']}, por un valor total de ${row['monto']:,.0f}. Puede realizar el pago por Nequi o Efectivo. ¡Muchas gracias!"
-                        mensaje_encoded = urllib.parse.quote(mensaje)
-                        whatsapp_link = (
-                            f"https://wa.me/{row['telefono']}?text={mensaje_encoded}"
-                        )
+                    mensaje = f"Hola {row['responsable']}, le escribimos de la tienda. Le compartimos el estado de cuenta quincenal con el saldo pendiente actual de su apartamento {row['id_inmueble']}, por un valor total de ${row['monto']:,.0f}. Puede realizar el pago por Nequi o Efectivo. ¡Muchas gracias!"
+                    mensaje_encoded = urllib.parse.quote(mensaje)
 
-                        st.markdown(
-                            f'<a href="{whatsapp_link}" target="_blank"><button style="background-color:#25D366; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">💬 Enviar Extracto de {row['id_inmueble']} por WhatsApp</button></a>',
-                            unsafe_allow_html=True,
-                        )
-            else:
-                st.success("¡Excelente! No hay saldos pendientes en este momento.")
+                    # Limpiar el número y anteponer el código de Colombia (+57) de forma segura
+                    tel_limpio = str(row["telefono"]).strip().replace(" ", "")
+                    if not tel_limpio.startswith("57"):
+                        tel_limpio = "57" + tel_limpio
+
+                    whatsapp_link = (
+                        f"https://wa.me/{tel_limpio}?text={mensaje_encoded}"
+                    )
+
+                    st.markdown(
+                        f'<a href="{whatsapp_link}" target="_blank"><button style="background-color:#25D366; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">💬 Enviar Extracto de {row['id_inmueble']} por WhatsApp</button></a>',
+                        unsafe_allow_html=True,
+                    )
         else:
             st.success("¡Excelente! No hay saldos pendientes en este momento.")
