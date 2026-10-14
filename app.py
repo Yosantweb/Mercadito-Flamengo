@@ -1,4 +1,5 @@
 import datetime
+import sqlite3
 import urllib.parse
 import pandas as pd
 import streamlit as st
@@ -12,49 +13,62 @@ st.set_page_config(
 
 st.title("🛒 Control de Créditos - Tienda (Gestión e Inmuebles)")
 st.markdown(
-    "Control de fiados, trazabilidad de compradores y gestión de pagos/abonos por apartamento."
+    "Control de fiados, trazabilidad de compradores y gestión de pagos/abonos con Base de Datos Permanente."
 )
 
-# Inicializar bases de datos en sesión
-if "clientes" not in st.session_state:
-    st.session_state.clientes = pd.DataFrame(
-        columns=[
-            "id_inmueble",
-            "torre",
-            "apartamento",
-            "responsable",
-            "telefono",
-        ]
-    )
-    st.session_state.clientes.loc[0] = [
-        "Torre 1 - Apto 302",
-        "Torre 1",
-        "Apto 302",
-        "Juan Pérez",
-        "3001234567",
-    ]
+# ---------------------------------------------------------
+# CONFIGURACIÓN DE LA BASE DE DATOS SQLITE (PERSISTENCIA)
+# ---------------------------------------------------------
+DB_NAME = "tienda.db"
 
-if "transacciones" not in st.session_state:
-    st.session_state.transacciones = pd.DataFrame(
-        columns=[
-            "id_transaccion",
-            "id_inmueble",
-            "fecha",
-            "comprador",
-            "descripcion",
-            "monto",
-            "estado",
-        ]
-    )
-    st.session_state.transacciones.loc[0] = [
-        1,
-        "Torre 1 - Apto 302",
-        str(datetime.date.today()),
-        "Juan Pérez",
-        "Leche, Pan y Huevos",
-        15000,
-        "Pendiente",
-    ]
+
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    # Tabla de inmuebles / clientes
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS clientes (
+            id_inmueble TEXT PRIMARY KEY,
+            torre TEXT,
+            apartamento TEXT,
+            responsable TEXT,
+            telefono TEXT
+        )
+    """)
+    # Tabla de transacciones / fíos / abonos
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS transacciones (
+            id_transaccion INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_inmueble TEXT,
+            fecha TEXT,
+            comprador TEXT,
+            descripcion TEXT,
+            monto REAL,
+            estado TEXT,
+            FOREIGN KEY (id_inmueble) REFERENCES clientes (id_inmueble)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+# Inicializar la base de datos al arrancar
+init_db()
+
+# Funciones de apoyo para interactuar con la Base de Datos
+def cargar_clientes():
+    conn = sqlite3.connect(DB_NAME)
+    df = pd.read_sql_query("SELECT * FROM clientes", conn)
+    conn.close()
+    return df
+
+
+def cargar_transacciones():
+    conn = sqlite3.connect(DB_NAME)
+    df = pd.read_sql_query("SELECT * FROM transacciones", conn)
+    conn.close()
+    return df
+
 
 # Menú lateral para navegar
 menu = st.sidebar.selectbox(
@@ -73,7 +87,9 @@ menu = st.sidebar.selectbox(
 if menu == "Registrar Venta / Crédito (Fío)":
     st.header("📝 Registrar Nuevo Fío en la Tienda")
 
-    if len(st.session_state.clientes) == 0:
+    df_clientes = cargar_clientes()
+
+    if len(df_clientes) == 0:
         st.warning(
             "Primero debes registrar al menos un inmueble en 'Registro y Edición de Inmuebles'."
         )
@@ -83,7 +99,7 @@ if menu == "Registrar Venta / Crédito (Fío)":
                 f"{row['torre']} - {row['apartamento']} (Contacto: {row['responsable']})": row[
                     "id_inmueble"
                 ]
-                for _, row in st.session_state.clientes.iterrows()
+                for _, row in df_clientes.iterrows()
             }
             inmueble_seleccionado = st.selectbox(
                 "Seleccione el Apartamento / Casa",
@@ -112,21 +128,26 @@ if menu == "Registrar Venta / Crédito (Fío)":
 
             if submitted and comprador:
                 id_inm = inmuebles_dict[inmueble_seleccionado]
-                nuevo_id = len(st.session_state.transacciones) + 1
-                nueva_fila = {
-                    "id_transaccion": nuevo_id,
-                    "id_inmueble": id_inm,
-                    "fecha": str(fecha),
-                    "comprador": comprador,
-                    "descripcion": descripcion,
-                    "monto": monto,
-                    "estado": "Pendiente",
-                }
-                st.session_state.transacciones.loc[
-                    len(st.session_state.transacciones)
-                ] = nueva_fila
+                conn = sqlite3.connect(DB_NAME)
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO transacciones (id_inmueble, fecha, comprador, descripcion, monto, estado)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        id_inm,
+                        str(fecha),
+                        comprador,
+                        descripcion,
+                        monto,
+                        "Pendiente",
+                    ),
+                )
+                conn.commit()
+                conn.close()
                 st.success(
-                    f"¡Fío registrado a nombre de '{comprador}' para el inmueble {inmueble_seleccionado}!"
+                    f"¡Fío registrado permanentemente a nombre de '{comprador}' para el inmueble {inmueble_seleccionado}!"
                 )
             elif submitted:
                 st.error("Por favor indica quién realizó la compra.")
@@ -137,21 +158,24 @@ if menu == "Registrar Venta / Crédito (Fío)":
 elif menu == "Registrar Abono o Pago Total":
     st.header("💵 Registrar Abono o Pago de Deuda")
 
-    if len(st.session_state.clientes) == 0:
+    df_clientes = cargar_clientes()
+    df_trans = cargar_transacciones()
+
+    if len(df_clientes) == 0:
         st.warning("No hay inmuebles registrados.")
     else:
-        df_t_pend = st.session_state.transacciones[
-            st.session_state.transacciones["estado"] == "Pendiente"
-        ]
+        df_t_pend = df_trans[df_trans["estado"] == "Pendiente"]
 
         if len(df_t_pend) == 0:
-            st.success("¡Excelente! No hay deudas pendientes para abonar.")
+            st.success(
+                "¡Excelente! No hay deudas pendientes registradas en la base de datos."
+            )
         else:
             inmuebles_dict = {
                 f"{row['torre']} - {row['apartamento']} (Contacto: {row['responsable']})": row[
                     "id_inmueble"
                 ]
-                for _, row in st.session_state.clientes.iterrows()
+                for _, row in df_clientes.iterrows()
             }
             inmueble_seleccionado = st.selectbox(
                 "Seleccione el Apartamento que realiza el pago",
@@ -189,19 +213,22 @@ elif menu == "Registrar Abono o Pago Total":
                     )
 
                     if ejecutar_pago:
+                        conn = sqlite3.connect(DB_NAME)
+                        cursor = conn.cursor()
+
                         if tipo_pago == "Pago Total (Cancelar toda la deuda)":
-                            st.session_state.transacciones.loc[
-                                (
-                                    st.session_state.transacciones["id_inmueble"]
-                                    == id_inm_sel
-                                )
-                                & (
-                                    st.session_state.transacciones["estado"]
-                                    == "Pendiente"
-                                ),
-                                "estado",
-                            ] = "Pagado"
-                            st.success("¡Deuda cancelada en su totalidad!")
+                            cursor.execute(
+                                """
+                                UPDATE transacciones SET estado = 'Pagado'
+                                WHERE id_inmueble = ? AND estado = 'Pendiente'
+                            """,
+                                (id_inm_sel,),
+                            )
+                            conn.commit()
+                            conn.close()
+                            st.success(
+                                "¡Deuda cancelada en su totalidad y guardada en la base de datos!"
+                            )
                             st.rerun()
                         else:
                             if monto_abono <= 0:
@@ -211,20 +238,25 @@ elif menu == "Registrar Abono o Pago Total":
                                     "El abono no puede ser mayor a la deuda total."
                                 )
                             else:
-                                nuevo_id = len(st.session_state.transacciones) + 1
-                                fila_abono = {
-                                    "id_transaccion": nuevo_id,
-                                    "id_inmueble": id_inm_sel,
-                                    "fecha": str(datetime.date.today()),
-                                    "comprador": "ABONO / PAGO",
-                                    "descripcion": "Abono parcial a la deuda",
-                                    "monto": -monto_abono,
-                                    "estado": "Pendiente",
-                                }
-                                st.session_state.transacciones.loc[
-                                    len(st.session_state.transacciones)
-                                ] = fila_abono
-                                st.success("¡Abono registrado con éxito!")
+                                cursor.execute(
+                                    """
+                                    INSERT INTO transacciones (id_inmueble, fecha, comprador, descripcion, monto, estado)
+                                    VALUES (?, ?, ?, ?, ?, ?)
+                                """,
+                                    (
+                                        id_inm_sel,
+                                        str(datetime.date.today()),
+                                        "ABONO / PAGO",
+                                        "Abono parcial a la deuda",
+                                        -monto_abono,
+                                        "Pendiente",
+                                    ),
+                                )
+                                conn.commit()
+                                conn.close()
+                                st.success(
+                                    "¡Abono registrado y guardado con éxito!"
+                                )
                                 st.rerun()
             else:
                 st.success("Este apartamento no tiene saldos pendientes.")
@@ -244,46 +276,47 @@ elif menu == "Registro y Edición de Inmuebles":
                 "Apartamento / Casa (Ej: Apto 201, Casa 15)"
             )
             responsable = st.text_input("Nombre del residente principal")
-            telefono = st.text_input(
-                "Número de WhatsApp (Ej: 3226834617 o 3001234567)"
-            )
+            telefono = st.text_input("Número de WhatsApp (Ej: 3226834617)")
             guardar_inm = st.form_submit_button("Registrar Inmueble")
 
             if guardar_inm and torre and apartamento and responsable and telefono:
                 id_inm = f"{torre} - {apartamento}"
+                df_clientes = cargar_clientes()
+
                 if (
-                    id_inm
-                    in st.session_state.clientes["id_inmueble"].values
+                    len(df_clientes) > 0
+                    and id_inm in df_clientes["id_inmueble"].values
                 ):
                     st.error(
                         f"¡El inmueble {id_inm} ya se encuentra registrado!"
                     )
                 else:
-                    nuevo_registro = [
-                        id_inm,
-                        torre,
-                        apartamento,
-                        responsable,
-                        telefono,
-                    ]
-                    st.session_state.clientes.loc[
-                        len(st.session_state.clientes)
-                    ] = nuevo_registro
+                    conn = sqlite3.connect(DB_NAME)
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        """
+                        INSERT INTO clientes (id_inmueble, torre, apartamento, responsable, telefono)
+                        VALUES (?, ?, ?, ?, ?)
+                    """,
+                        (id_inm, torre, apartamento, responsable, telefono),
+                    )
+                    conn.commit()
+                    conn.close()
                     st.success(
-                        f"Inmueble {id_inm} registrado correctamente."
+                        f"Inmueble {id_inm} guardado permanentemente en la base de datos."
                     )
 
     with tab2:
-        if len(st.session_state.clientes) > 0:
+        df_clientes = cargar_clientes()
+        if len(df_clientes) > 0:
             with st.form("form_editar_inmueble"):
-                lista_inm = st.session_state.clientes["id_inmueble"].tolist()
+                lista_inm = df_clientes["id_inmueble"].tolist()
                 inmueble_a_editar = st.selectbox(
                     "Seleccione el Inmueble a Editar", options=lista_inm
                 )
 
-                datos_actuales = st.session_state.clientes[
-                    st.session_state.clientes["id_inmueble"]
-                    == inmueble_a_editar
+                datos_actuales = df_clientes[
+                    df_clientes["id_inmueble"] == inmueble_a_editar
                 ].iloc[0]
 
                 nuevo_responsable = st.text_input(
@@ -298,11 +331,21 @@ elif menu == "Registro y Edición de Inmuebles":
                 actualizar_btn = st.form_submit_button("Actualizar Datos")
 
                 if actualizar_btn:
-                    st.session_state.clientes.loc[
-                        st.session_state.clientes["id_inmueble"]
-                        == inmueble_a_editar,
-                        ["responsable", "telefono"],
-                    ] = [nuevo_responsable, nuevo_telefono]
+                    conn = sqlite3.connect(DB_NAME)
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        """
+                        UPDATE clientes SET responsable = ?, telefono = ?
+                        WHERE id_inmueble = ?
+                    """,
+                        (
+                            nuevo_responsable,
+                            nuevo_telefono,
+                            inmueble_a_editar,
+                        ),
+                    )
+                    conn.commit()
+                    conn.close()
                     st.success(
                         f"¡Datos del inmueble {inmueble_a_editar} actualizados con éxito!"
                     )
@@ -310,7 +353,7 @@ elif menu == "Registro y Edición de Inmuebles":
             st.info("No hay inmuebles registrados.")
 
     st.subheader("Base de Datos de Inmuebles Activos")
-    st.dataframe(st.session_state.clientes, use_container_width=True)
+    st.dataframe(cargar_clientes(), use_container_width=True)
 
 # ---------------------------------------------------------
 # 4. CORTE QUINCENAL Y COBRO POR WHATSAPP
@@ -318,16 +361,16 @@ elif menu == "Registro y Edición de Inmuebles":
 elif menu == "Corte Quincenal y Cobros WhatsApp":
     st.header("💰 Liquidación Quincenal Consolidada")
 
-    if len(st.session_state.transacciones) == 0:
-        st.info("No hay transacciones pendientes.")
-    else:
-        df_t = st.session_state.transacciones[
-            st.session_state.transacciones["estado"] == "Pendiente"
-        ].copy()
-        df_c = st.session_state.clientes
+    df_trans = cargar_transacciones()
+    df_clientes = cargar_clientes()
 
-        if len(df_t) > 0:
-            df_merged = df_t.merge(df_c, on="id_inmueble")
+    if len(df_trans) == 0:
+        st.info("No hay transacciones registradas.")
+    else:
+        df_t = df_trans[df_trans["estado"] == "Pendiente"].copy()
+
+        if len(df_t) > 0 and len(df_clientes) > 0:
+            df_merged = df_t.merge(df_clientes, on="id_inmueble")
 
             resumen_deudas = (
                 df_merged.groupby([
@@ -346,34 +389,35 @@ elif menu == "Corte Quincenal y Cobros WhatsApp":
             if len(resumen_deudas) > 0:
                 st.subheader("Cuentas Pendientes por Apartamento")
 
-            for _, row in resumen_deudas.iterrows():
-                with st.expander(
-                    f"🏠 {row['id_inmueble']} | Contacto: {row['responsable']} — Deuda Total: ${row['monto']:,.0f}"
-                ):
-                    compras_apartamento = df_merged[
-                        df_merged["id_inmueble"] == row["id_inmueble"]
-                    ]
-                    st.table(
-                        compras_apartamento[
-                            ["fecha", "comprador", "descripcion", "monto"]
+                for _, row in resumen_deudas.iterrows():
+                    with st.expander(
+                        f"🏠 {row['id_inmueble']} | Contacto: {row['responsable']} — Deuda Total: ${row['monto']:,.0f}"
+                    ):
+                        compras_apartamento = df_merged[
+                            df_merged["id_inmueble"] == row["id_inmueble"]
                         ]
-                    )
+                        st.table(
+                            compras_apartamento[
+                                ["fecha", "comprador", "descripcion", "monto"]
+                            ]
+                        )
 
-                    mensaje = f"Hola {row['responsable']}, le escribimos de la tienda. Le compartimos el estado de cuenta quincenal con el saldo pendiente actual de su apartamento {row['id_inmueble']}, por un valor total de ${row['monto']:,.0f}. Puede realizar el pago por Nequi o Efectivo. ¡Muchas gracias!"
-                    mensaje_encoded = urllib.parse.quote(mensaje)
+                        mensaje = f"Hola {row['responsable']}, le escribimos de la tienda. Le compartimos el estado de cuenta quincenal con el saldo pendiente actual de su apartamento {row['id_inmueble']}, por un valor total de ${row['monto']:,.0f}. Puede realizar el pago por Nequi o Efectivo. ¡Muchas gracias!"
+                        mensaje_encoded = urllib.parse.quote(mensaje)
 
-                    # Limpiar el número y anteponer el código de Colombia (+57) de forma segura
-                    tel_limpio = str(row["telefono"]).strip().replace(" ", "")
-                    if not tel_limpio.startswith("57"):
-                        tel_limpio = "57" + tel_limpio
+                        tel_limpio = str(row["telefono"]).strip().replace(" ", "")
+                        if not tel_limpio.startswith("57"):
+                            tel_limpio = "57" + tel_limpio
 
-                    whatsapp_link = (
-                        f"https://wa.me/{tel_limpio}?text={mensaje_encoded}"
-                    )
+                        whatsapp_link = (
+                            f"https://wa.me/{tel_limpio}?text={mensaje_encoded}"
+                        )
 
-                    st.markdown(
-                        f'<a href="{whatsapp_link}" target="_blank"><button style="background-color:#25D366; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">💬 Enviar Extracto de {row['id_inmueble']} por WhatsApp</button></a>',
-                        unsafe_allow_html=True,
-                    )
+                        st.markdown(
+                            f'<a href="{whatsapp_link}" target="_blank"><button style="background-color:#25D366; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">💬 Enviar Extracto de {row['id_inmueble']} por WhatsApp</button></a>',
+                            unsafe_allow_html=True,
+                        )
+            else:
+                st.success("¡Excelente! No hay saldos pendientes en este momento.")
         else:
             st.success("¡Excelente! No hay saldos pendientes en este momento.")
