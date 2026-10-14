@@ -13,7 +13,7 @@ st.set_page_config(
 
 st.title("🛒 Control de Créditos y Cartera - Tienda Residencial")
 st.markdown(
-    "Panel de administración, ventas mixtas, control de cartera y cobros masivos por WhatsApp."
+    "Panel de administración, ventas mixtas, control de cartera, cobros masivos y buzón de pedidos."
 )
 
 # ---------------------------------------------------------
@@ -37,7 +37,7 @@ def init_db():
         )
     """)
 
-    # Tabla de transacciones con la estructura completa
+    # Tabla de transacciones
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS transacciones (
             id_transaccion INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,7 +53,20 @@ def init_db():
         )
     """)
 
-    # Autocorrección si la tabla ya existía sin las columnas nuevas
+    # Tabla nueva para Buzón de Mensajes y Pedidos
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS mensajes (
+            id_mensaje INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_inmueble TEXT,
+            fecha TEXT,
+            tipo_mensaje TEXT,
+            contenido TEXT,
+            estado_mensaje TEXT,
+            FOREIGN KEY (id_inmueble) REFERENCES clientes (id_inmueble)
+        )
+    """)
+
+    # Autocorrección si la tabla transacciones ya existía sin las columnas nuevas
     cursor.execute("PRAGMA table_info(transacciones)")
     columnas_existentes = [col[1] for col in cursor.fetchall()]
 
@@ -91,13 +104,21 @@ def cargar_transacciones():
     return df
 
 
-# Menú lateral para navegar
+def cargar_mensajes():
+    conn = sqlite3.connect(DB_NAME)
+    df = pd.read_sql_query("SELECT * FROM mensajes", conn)
+    conn.close()
+    return df
+
+
+# Menú lateral para navegar actualizado
 menu = st.sidebar.selectbox(
     "Menú de Administración",
     [
         "📊 Dashboard y Cartera General",
         "📝 Registrar Venta (Contado / Crédito / Mixta)",
         "💵 Registrar Abono o Pago Total",
+        "💬 Buzón de Pedidos y Requerimientos",
         "📈 Histórico Mensual y por Inmueble",
         "🏢 Registro y Edición de Inmuebles",
         "💰 Corte Quincenal y Cobros WhatsApp",
@@ -389,7 +410,132 @@ elif menu == "💵 Registrar Abono o Pago Total":
                 st.success("Este apartamento no tiene saldos pendientes.")
 
 # ---------------------------------------------------------
-# 3. HISTÓRICO MENSUAL Y POR INMUEBLE
+# 3. BUZÓN DE PEDIDOS Y REQUERIMIENTOS
+# ---------------------------------------------------------
+elif menu == "💬 Buzón de Pedidos y Requerimientos":
+    st.header("💬 Buzón de Pedidos y Requerimientos de Vecinos")
+    st.markdown(
+        "Canal de comunicación donde los residentes pueden enviar pedidos de tienda, consultas de productos o encargos."
+    )
+
+    df_clientes = cargar_clientes()
+
+    if len(df_clientes) == 0:
+        st.warning("No hay inmuebles registrados para usar el buzón.")
+    else:
+        tab_envio, tab_bandeja = st.tabs(
+            ["Enviar Pedido / Mensaje", "Bandeja de Entrada (Tendero)"]
+        )
+
+        with tab_envio:
+            with st.form("form_enviar_mensaje"):
+                inmuebles_dict = {
+                    f"{row['torre']} - {row['apartamento']} (Contacto: {row['responsable']})": row[
+                        "id_inmueble"
+                    ]
+                    for _, row in df_clientes.iterrows()
+                }
+                inmueble_remitente = st.selectbox(
+                    "Seleccione su Apartamento / Casa",
+                    options=list(inmuebles_dict.keys()),
+                )
+
+                tipo_solicitud = st.selectbox(
+                    "Tipo de Requerimiento",
+                    [
+                        "Pedido de Tienda / Domicilio",
+                        "Consulta de Disponibilidad",
+                        "Otro Mensaje al Tendero",
+                    ],
+                )
+                contenido_mensaje = st.text_area(
+                    "Escriba su mensaje o listado de productos",
+                    placeholder="Ej: Don Julio, por favor envíeme 1 pan, 6 huevos y una leche deslactosada para recoger a las 5pm.",
+                )
+
+                enviar_btn = st.form_submit_button("Enviar Mensaje al Tendero")
+
+                if enviar_btn and contenido_mensaje:
+                    id_inm = inmuebles_dict[inmueble_remitente]
+                    conn = sqlite3.connect(DB_NAME)
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        """
+                        INSERT INTO mensajes (id_inmueble, fecha, tipo_mensaje, contenido, estado_mensaje)
+                        VALUES (?, ?, ?, ?, ?)
+                    """,
+                        (
+                            id_inm,
+                            str(datetime.date.today()),
+                            tipo_solicitud,
+                            contenido_mensaje,
+                            "Pendiente",
+                        ),
+                    )
+                    conn.commit()
+                    conn.close()
+                    st.success(
+                        "¡Mensaje enviado con éxito al tendero! Pronto le responderá o preparará su pedido."
+                    )
+
+        with tab_bandeja:
+            st.subheader("📬 Mensajes y Pedidos Recibidos")
+            df_mensajes = cargar_mensajes()
+
+            if len(df_mensajes) > 0:
+                df_merged_m = df_mensajes.merge(df_clientes, on="id_inmueble")
+                df_merged_m = df_merged_m.sort_values(
+                    by="id_mensaje", ascending=False
+                )
+
+                for _, row in df_merged_m.iterrows():
+                    with st.expander(
+                        f"🏠 [{row['fecha']}] {row['id_inmueble']} — {row['tipo_mensaje']} (Estado: {row['estado_mensaje']})"
+                    ):
+                        st.markdown(f"**Residente:** {row['responsable']}")
+                        st.markdown(f"**Teléfono:** {row['telefono']}")
+                        st.markdown(f"**Contenido del pedido:**")
+                        st.info(row["contenido"])
+
+                        col_m1, col_m2 = st.columns(2)
+                        with col_m1:
+                            if st.button(
+                                f"Marcar Atendido #{row['id_mensaje']}",
+                                key=f"atendido_{row['id_mensaje']}",
+                            ):
+                                conn = sqlite3.connect(DB_NAME)
+                                cursor = conn.cursor()
+                                cursor.execute(
+                                    """
+                                    UPDATE mensajes SET estado_mensaje = 'Atendido'
+                                    WHERE id_mensaje = ?
+                                """,
+                                    (row["id_mensaje"],),
+                                )
+                                conn.commit()
+                                conn.close()
+                                st.success("¡Marcado como atendido!")
+                                st.rerun()
+                        with col_m2:
+                            # Botón para responderle directamente por WhatsApp al vecino desde el pedido
+                            tel_limpio = (
+                                str(row["telefono"]).strip().replace(" ", "")
+                            )
+                            if not tel_limpio.startswith("57"):
+                                tel_limpio = "57" + tel_limpio
+                            resp_w, _ = st.columns([3, 1])
+                            msg_w = urllib.parse.quote(
+                                f"Hola {row['responsable']}, le escribimos de la tienda sobre su mensaje: '{row['contenido']}'."
+                            )
+                            st.markdown(
+                                f'<a href="https://wa.me/{tel_limpio}?text={msg_w}" target="_blank"><button style="background-color:#25D366; color:white; padding:8px 16px; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">💬 Responder por WhatsApp</button></a>',
+                                unsafe_allow_html=True,
+                            )
+            else:
+                st.info("No hay mensajes ni pedidos en el buzón por ahora.")
+
+# ---------------------------------------------------------
+# 4. HISTÓRICO MENSUAL Y POR INMUEBLE
 # ---------------------------------------------------------
 elif menu == "📈 Histórico Mensual y por Inmueble":
     st.header("📈 Histórico General y por Inmueble")
@@ -458,7 +604,7 @@ elif menu == "📈 Histórico Mensual y por Inmueble":
             st.info("No se encontraron registros para los filtros seleccionados.")
 
 # ---------------------------------------------------------
-# 4. REGISTRO Y EDICIÓN DE INMUEBLES
+# 5. REGISTRO Y EDICIÓN DE INMUEBLES
 # ---------------------------------------------------------
 elif menu == "🏢 Registro y Edición de Inmuebles":
     st.header("🏢 Gestión y Actualización de Inmuebles")
@@ -550,7 +696,7 @@ elif menu == "🏢 Registro y Edición de Inmuebles":
     st.dataframe(cargar_clientes(), use_container_width=True)
 
 # ---------------------------------------------------------
-# 5. CORTE QUINCENAL Y COBROS WHATSAPP (CON ENVÍO MASIVO)
+# 6. CORTE QUINCENAL Y COBROS WHATSAPP (CON ENVÍO MASIVO)
 # ---------------------------------------------------------
 elif menu == "💰 Corte Quincenal y Cobros WhatsApp":
     st.header("💰 Liquidación Quincenal y Panel de Cobros por WhatsApp")
