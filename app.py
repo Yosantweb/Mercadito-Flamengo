@@ -53,7 +53,7 @@ def init_db():
         )
     """)
 
-    # SEGURIDAD EXTRA: Si la tabla ya existía de versiones anteriores sin las columnas nuevas, las agregamos automáticamente
+    # Autocorrección si la tabla ya existía sin las columnas nuevas
     cursor.execute("PRAGMA table_info(transacciones)")
     columnas_existentes = [col[1] for col in cursor.fetchall()]
 
@@ -128,7 +128,6 @@ if menu == "📊 Dashboard y Cartera General":
                 label="💰 Cartera Total en la Calle",
                 value=f"${cartera_total:,.0f}",
                 delta="Dinero pendiente por cobrar",
-                delta_value="inverse",
             )
         with col2:
             st.metric(
